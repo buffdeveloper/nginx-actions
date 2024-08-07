@@ -54,3 +54,9 @@ nbdist/
 
 # VS Code
 .vscode/
+
+# Quarkus specific
+.quarkus/
+
+# Local environment variables
+.env

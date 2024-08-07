@@ -44,6 +44,7 @@ jobs:
             ignore-unfixed: true # ignore vulnerabilities that have no fix
             severity: 'HIGH,CRITICAL'
             scanners: 'vuln'
+            # exit-code: '2'
             output: 'trivy-results.sarif'
             trivyignores: 'trivy/.trivyignore'
 
@@ -54,8 +55,13 @@ jobs:
             sarif_file: 'trivy-results.sarif'
             category: 'Container Scanning'
 
-        # - name: Fail if vulnerabilities found
-        #   if: ${{ steps.trivy.outputs.exit-code == '0' }}
-        #   run: |
-        #     echo "This image cannot be imported given the critical/high vulnerabilities found"
-        #     exit 1
+        - name: Fail if vulnerabilities found
+          if: ${{ steps.trivy.outputs.exit-code == '0' }}
+          run: |
+            echo "This image cannot be imported given the critical/high vulnerabilities found"
+            exit 1
+
+        - name: Import image to Azure Container Registry
+          if: ${{ steps.trivy.outputs.exit-code == '0' }}
+          run: |
+           echo "Image will be imported to Azure Container Registry"
