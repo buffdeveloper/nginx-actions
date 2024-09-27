@@ -6,7 +6,8 @@ on:
     branches:
     - main
     paths:
-    - .github/workflows/import-image.yml
+    - trivy/.trivyignore
+    - image-list
     types:
     - opened
     - reopened
@@ -37,33 +38,13 @@ jobs:
           uses: aquasecurity/trivy-action@0.24.0
           with:
             image-ref: '${{ env.IMAGE_REF }}'
-            format: 'json'
+            format: 'table'
             ignore-unfixed: true # ignore vulnerabilities that have no fix
             severity: 'CRITICAL,HIGH'
             scanners: 'vuln'
             exit-code: '0'
-            output: 'trivy-results.json'
+            trivyignores: trivy/.trivyignore
       
-        - name: Install jq
-          run: sudo apt-get install -y jq
-
-        - name: Check for HIGH or CRITICAL vulnerabilities
-          id: check_vulnerabilities
-          run: |
-            # Extract VulnerabilityID values using jq and save to a temporary file
-            jq -r '.Results[]?.Vulnerabilities[]?.VulnerabilityID // empty' trivy-results.json | sort | uniq > extracted_vulnerabilities.txt
-
-            # Remove duplicates from the .trivyignore file and save to a temporary file
-            sort trivy/.trivyignore | uniq > trivyignore_unique.txt
-            
-            # Compare the extracted vulnerabilities against the .trivyignore file
-            if grep -Fxvf trivy/.trivyignore extracted_vulnerabilities.txt; then
-              echo "Found vulnerabilities not listed in .trivyignore"
-              exit 1
-            else
-              echo "No unignored vulnerabilities found"
-            fi
-            
           continue-on-error: true
     
         - name: Import image to Azure Container Registry

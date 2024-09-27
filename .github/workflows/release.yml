@@ -12,8 +12,10 @@ on:
         releaseNotes:
           description: "Current release notes"
           value: ${{ jobs.release.outputs.releaseNotes }}
-  
-  jobs:
+        majorVersion:
+            description: "The major version"
+            value: ${{ jobs.release.outputs.majorVersion }}
+jobs:
     release:
       runs-on: ${{ inputs.gh_runner }}
       outputs:

@@ -1,0 +1,168 @@
+name: 'Changed files of a PR'
+description: 'List all files with a change from a PR'
+inputs:
+  GITHUB_TOKEN:
+    description: 'To fetch PR info'
+    required: true
+  ENV_PATH:
+    description: 'Path where changes you care about for env'
+  COMMON_PATH:
+    description: 'Path where changes you care about for common'
+  REPO_PATH:
+    description: 'If more than one repo are cloned in the workflow, pass the path to Check'
+runs:
+  using: 'composite'
+  steps:
+  - name: Get changed files status in the PR (Add, Modify, Delete)
+    env:
+      GITHUB_TOKEN: ${{ inputs.GITHUB_TOKEN }}
+    run: |
+      REPO_PATH=${{ inputs.REPO_PATH }}
+      if [ -n "$REPO_PATH" ]; then
+        cd $REPO_PATH
+      fi
+
+      # Debugging output
+      echo "Base SHA: ${{ github.event.pull_request.base.sha }}"
+      echo "Current SHA: ${{ github.sha }}"
+
+      git diff --name-status ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -v '\.github/' > changed_files.txt
+
+      PR_NUMBER=${{ github.event.pull_request.number }}
+      # gh pr diff $PR_NUMBER --name-only > changed_files.txt
+      # git log --diff-filter=R --name-only -p -- $REPO_PATH >> changed_files.txt
+      #git log --diff-filter=D --name-only -p -- $REPO_PATH > deleted_files.txt
+    shell: bash
+
+  - name: Separate the files in the PR accordingly to their status (Add, Modify, Delete) and env (common, dev, tst, prd)
+    run: |
+      REPO_PATH=${{ inputs.REPO_PATH }}
+      if [ -n "$REPO_PATH" ]; then
+        cd $REPO_PATH
+      fi
+      
+      # Path to your text file
+      input_file="changed_files.txt"
+
+      # Initialize associative arrays to store files by status and directory
+      declare -A common_files
+      declare -A dev_files
+      declare -A tst_files
+      declare -A pre_files
+      declare -A prd_files
+
+      # Function to categorize files
+      categorize_files() {
+        local status="$1"
+        local file="$2"
+        local dir="$3"
+
+        case $dir in
+          common)
+            common_files["$status"]+="$file"$'\n'
+            ;;
+          dev)
+            dev_files["$status"]+="$file"$'\n'
+            ;;
+          tst)
+            tst_files["$status"]+="$file"$'\n'
+            ;;
+          pre)
+            pre_files["$status"]+="$file"$'\n'
+            ;;
+          prd)
+            prd_files["$status"]+="$file"$'\n'
+            ;;
+        esac
+      }
+
+      # Read the file line by line using while read loop and handle the last line correctly
+      while IFS=$'\t' read -r status file || [[ -n "$status" ]]; do
+        if [[ $file == environments/common/* ]]; then
+          categorize_files "$status" "$file" "common"
+        elif [[ $file == environments/dev/* ]]; then
+          categorize_files "$status" "$file" "dev"
+        elif [[ $file == environments/tst/* ]]; then
+          categorize_files "$status" "$file" "tst"
+        elif [[ $file == environments/pre/* ]]; then
+          categorize_files "$status" "$file" "pre"
+        elif [[ $file == environments/prd/* ]]; then
+          categorize_files "$status" "$file" "prd"
+        fi
+      done < "$input_file"
+
+      # Function to copy files from common to dev, tst, prd
+      # ignores .md files
+      copy_common_files() {
+        local -n files="$1"
+
+        for status in "A" "M" "D"; do
+          local status_name=""
+          case $status in
+            A) status_name="add" ;;
+            M) status_name="modify" ;;
+            D) status_name="delete" ;;
+          esac
+
+          if [ -n "${files[$status]}" ]; then
+            while IFS= read -r file; do
+              if [ -n "$file" ] && [[ $file != *.md ]]; then
+                for dir in dev tst prd; do
+                  dest_dir="files_with_changes/$dir/$status_name"
+                  mkdir -p "$dest_dir"
+                  if [[ $status == "D" ]]; then
+                    touch "$dest_dir/$(basename "$file")"
+                    echo "File marked for deletion! Creating empty file: $dir/$(basename "$file")"
+                  else
+                    echo "Copying file: $file to $dest_dir/"
+                    cp -pr "$file" "$dest_dir/"
+                  fi
+                done
+              fi
+            done <<< "${files[$status]}"
+          fi
+        done
+      }
+
+      # Function to copy categorized files to files_with_changes folder
+      # ignores .md files
+      copy_files() {
+        local category="$1"
+        local -n files="$2"
+
+        for status in "A" "M" "D"; do
+          local status_name=""
+          case $status in
+            A) status_name="add" ;;
+            M) status_name="modify" ;;
+            D) status_name="delete" ;;
+          esac
+
+          if [ -n "$status_name" ]; then
+            local dir="files_with_changes/$category/$status_name"
+            mkdir -p "$dir"
+
+            while IFS= read -r file; do
+              if [ -n "$file" ] && [[ $file != *.md ]]; then
+                if [[ $status == "D" ]]; then
+                  touch "$dir/$(basename "$file")"
+                  echo "File marked for deletion! Creating empty file: $dir/$(basename "$file")" 
+                else
+                  echo "Copying file: $file to $dir/"
+                  cp -pr "$file" "$dir/"
+                fi
+              fi
+            done <<< "${files[$status]}"
+          fi
+        done
+      }
+
+      # Copy common files to dev, tst, prd
+      copy_common_files common_files
+
+      # Copy the files categorized by directory and status
+      copy_files "dev" dev_files
+      copy_files "tst" tst_files
+      copy_files "pre" pre_files
+      copy_files "prd" prd_files
+    shell: bash
